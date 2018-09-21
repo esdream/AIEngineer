@@ -1,5 +1,6 @@
-// 输入一个int序列, 求最长递减序列长度
-// 例如输入[18, 16, 15, 19, 20, 11, 10, 9, 8, 7], 返回8
+// 最长递增/递减子序列
+// 输入一个int序列, 求最长递增/递减序列长度
+// 例如找最长递减子序列，输入[18, 16, 15, 19, 20, 11, 10, 9, 8, 7], 返回8
 // 有两种解法：
 // 第一种是将原序列按从大到小排列，然后求二者的最长公共子序列，复杂度为O(nlogn) + O(n^2) = O(n^2)
 #include <iostream>
@@ -53,12 +54,54 @@ int lcs(vector<int> &a, vector<int> &b, int m, int n)
     return cache[m][n];
 }
 
+
+// 第二种解法：复杂度为O(nlogn)
+int binarySearch(vector<int> &cache, int value, int nLISLen)
+{
+    int begin = 0;
+    int end = nLISLen - 1;
+    while(begin <= end)
+    {
+        int mid = begin + (end - begin) / 2;
+        if (cache[mid] == value)
+            return mid;
+        else if (cache[mid] > value)
+            end = mid - 1;
+        else
+            begin = mid + 1;
+    }
+    return begin;
+}
+
+int lis_DP_NlogN(vector<int>& arr)
+{
+    int length = arr.size();
+    vector<int> cache(length);
+    int nLISLen = 1;
+    cache[0] = arr[0];
+
+    for(int i = 1; i < length; i++)    
+    {
+        if(arr[i] < cache[nLISLen - 1])
+        {
+            cache[nLISLen] = arr[i];
+            nLISLen++;
+        }
+        else
+        {
+            int pos = binarySearch(cache, arr[i], nLISLen);
+            cache[pos] = arr[i];
+        }
+    }
+    return nLISLen;
+}
+
 int main()
 {
     int a[8] = {9, 4, 3, 2, 5, 4, 3, 2};
     vector<int> srcArr(a, a + 8);
     vector<int> sortedArr = srcArr;
-    cout << endl;
     cout << lcs(srcArr, sortedArr, srcArr.size(), sortedArr.size()) << endl;
+    cout << lis_DP_NlogN(srcArr) << endl;
     return 0;
 }
