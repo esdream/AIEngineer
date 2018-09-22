@@ -60,7 +60,7 @@ int binarySearch(vector<int> &cache, int value, int nLISLen)
 {
     int begin = 0;
     int end = nLISLen - 1;
-    while(begin <= end)
+    while(begin < end)
     {
         int mid = begin + (end - begin) / 2;
         if (cache[mid] == value)
@@ -90,16 +90,23 @@ int lis_DP_NlogN(vector<int>& arr)
         else
         {
             int pos = binarySearch(cache, arr[i], nLISLen);
+            cout << i << ": " << pos << endl;
             cache[pos] = arr[i];
         }
     }
+
+    for(int i = 0; i < nLISLen; i++)
+    {
+        cout << i << ": " << cache[i] << " ";
+    }
+    cout << endl;
     return nLISLen;
 }
 
 int main()
 {
-    int a[8] = {9, 4, 3, 2, 5, 4, 3, 2};
-    vector<int> srcArr(a, a + 8);
+    int a[10] = {18, 16, 15, 19, 20, 11, 10, 9, 8, 7};
+    vector<int> srcArr(a, a + 10);
     vector<int> sortedArr = srcArr;
     cout << lcs(srcArr, sortedArr, srcArr.size(), sortedArr.size()) << endl;
     cout << lis_DP_NlogN(srcArr) << endl;
