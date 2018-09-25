@@ -112,7 +112,7 @@ stride = [10 / 3]向下取整 = 3
 
 ---
 
-## FAST R-CNN
+## Fast R-CNN
 
 + 主要对R-CNN中使用大量重叠的region proposal进行卷积造成的**提取特征操作冗余**进行了改进
 + 同时把类别判断和位置精调**统一用深度网络实现**，不再需要额外存储
@@ -135,4 +135,135 @@ FAST R-CNN去掉了SVM分类层与线性回归精修候选框层，将最后一�
 
 论文在SVM和Softmax的对比实验中说明，SVM的优势并不明显，故直接用Softmax将整个网络整合训练更好。对于联合训练，同时利用了**分类的监督信息和回归的监督信息**，使得网络训练的更加鲁棒，效果更好。这两种信息是可以有效联合的。
 
+在位置精修中，使用的是**smooth损失函数**。假设对于类别$k^*$，在图像中标注了一个ground truth坐标$t^* = (t^*_x, t^*_y, t^*_w, t^*_h)$，即锚点坐标、宽、高。预测值为$t = (t_x, t_y, t_w, t_h)$。定义损失函数
+$$
+L_loc(t, t^*) = \Sigma_{i \in \{x, y, w, h\}}smooth_{L1}(t_i, t^*_i)
+$$
+其中
+$$
+smooth_{L1}(x) = \begin{cases} 0.5x^2, &|x|\le1 \\ |x| - 0.5 &otherwise  \end{cases}
+$$
+其中x为$t_i - t_i^*$，即对应坐标与高宽的差距，该函数在(-1, 1)之间为二次函数，其他区域为线性函数。
+
+![smooth函数](https://pic2.zhimg.com/80/v2-fa78a0462cb6cd1cd8dcd91f88820d19_hd.jpg)
+
 详细的regression过程参考[FAST R-CNN](https://zhuanlan.zhihu.com/p/24780395)。
+
+---
+
+## Faster R-CNN
+
+整体结构如下。
+
+![Faster R-CNN](http://pb2ofoe75.bkt.clouddn.com/Faster%20R-CNN.jpg)
+
+一个网络结构，包含了4个损失函数：
+
++ RPN classification（anchor -> foreground / background）
++ RPN regression（anchor -> proposal）
++ Faster R-CNN classification（2000 classes）
++ Faster R-CNN regression（proposal ->  bounding box）
+
+### Region Proposal Network（区域候选网络）
+
+训练一个网络来替代selective search，进行物体的框选。
+
+![RPN](http://pb2ofoe75.bkt.clouddn.com/RPN.jpg)
+
+RPN网络分为两个支路，上面一条通过softmax二分类anchors获得foreground（检测目标）和background，下面一条用于计算对于anchors的bounding box regression的偏移量，以获得精确的proposal。最后的Proposal层则负责综合foreground anchors和bounding box regression偏移量获得proposals。同时剔除太小和超出边界的proposals。
+
+#### Anchors
+
+Anchor实际上就是一组有编号有坐标的bounding box，一共**3种形状，9个矩形（3种尺度）**，即长宽比为width : height = [1:1, 1:2, 2:1]。
+
+![Anchors](http://pb2ofoe75.bkt.clouddn.com/Anchors.jpg)
+
+RPN之前的卷积操作完成后，遍历得到的feature maps，为每一个点使用以上9种anchors作为初始检测框，后面还会修正检测框位置。得到所有的anchor boxes后，再使用**NMS（非极大值机制，见R-CNN中的详细介绍）**移除部分候选框，然后进行训练。
+
+![Anchors处理过程](http://pb2ofoe75.bkt.clouddn.com/Anchors%E5%A4%84%E7%90%86%E8%BF%87%E7%A8%8B.png)
+
+#### Bounding box regression原理
+
+详见[ CNN目标检测（一）：Faster RCNN详解](https://www.jianshu.com/p/de37451a0a77)第2.4节，或者[Faster R-CNN](https://zhuanlan.zhihu.com/p/24916624)。原理与Fast R-CNN中基本相同，只是$t_i^*$由原来selection search的候选框变成了anchor box。
+
+### 后续步骤
+
+经过RPN训练后得到的proposal，与featrue maps进行concat，然后进行POI Pooling，使Fully Connection层的输入完全一致。然后进行一个Multi-task的训练任务，得到结果。
+
+---
+
+## YOLO
+
+YOLO（You Only Look Once）将物体检测作为**回归问题**求解，基于一个单独的end-to-end网络，完成从原始图像到物体位置和类别的输出。输入图像经过一次inference，就能得到图像中所有物体的位置和其所属的类别及相应的置信概率（confidence）。
+
+### 步骤
+
+1. 将图像resize成448 * 448，图像分割为7 * 7网格（cell），这里分割的数量可以任意，后面计算时按照分割的size计算。
+2. CNN提取特征和预测：
+   + 7 * 7 * 2bounding box（bbox）的坐标$(x_{center}, y_{center}, w, h)$，和7 * 7个是否有物体的confidence。
+   + 7 * 7个cell分别属于哪一个物体的概率（paper中为20种物体）。
+3. 通过NMS过滤bbox。
+
+### 网络结构
+
+![YOLO](https://pic1.zhimg.com/80/v2-2c4e8576b987236de47f91ad594bf36d_hd.jpg)
+
+YOLO包含了24个卷积层和2个全连接层，其借鉴了GoogleNet的结构，但未使用Inception方式，而是使用了1 * 1卷积层 + 3 * 3卷积层替代。
+
+### 训练
+
+#### 预训练分类网络
+
+在ImageNet 1000-class competition dataset上预训练一个分类网络，这个网络是网络结构中前20个卷积网络 + average-pooling layer + fully connection layer（此时网络的输入是**224 * 224**）。
+
+#### 训练检测网络
+
+这里添加了4个卷积层和2个全连接层，将网络输入改为**448 * 448**。
+
++ 一副图片分成7 * 7个grid cell，当物体的ground truth bbox的中心落在某个网络中时，该网络就负责预测这个物体（是回归检测框还是分类？）。例如以下这张图，狗的中心点落在(5, 2)这个格子内，这个格子就负责预测图像中的物体狗。
+
+  ![物体中心点](https://pic2.zhimg.com/80/v2-b646262ae5e3cf7d55a2f774d49d61c0_hd.jpg)
+
++ 每个格子输出B个bounding box，Paper中**B = 2**，如下图中的黄色框。这里的bounding box是**人为选定的2个不同长宽比的box**。也就是说每个cell要预测两个bounding box（四个坐标信息$(x_{center}, y_{center}, w, h)$和一个confidence值）。其中：
+
+  + 中心坐标$x_center, y_center$相对于对应的网格归一化到0 - 1之间，w, h用图像的width和height归一化到0-1之间。
+
+  + confidence代表了所预测的bbox中含有object的置信度和这个bbox预测的有多准的两重信息：
+    $$
+    confidence = Pr(Object) * IOU^{truth}_{pred}
+    $$
+    如果有ground truth box第一个grid cell里，第一项取1，否则取0。第二项是预测bounding box和实际的ground truth之间的IOC值。
+
+![bounding box](https://pic2.zhimg.com/v2-1ad557fda288473b0335fe64e03bc049_r.jpg)
+
++ 预测类别信息。Paper中有20类。
+
+因此，每一个网格要预测2个bounding box（2 * （$(x_{center}, y_{center}, w, h)$ + confidence））和20类，一共30个参数。因此输出tensor的维度为 **7 * 7 * 30 = 1470**。
+
+### Loss Function定义
+
+YOLO的loss function基本思路如下：
+$$
+loss = \Sigma^{S^2}_{i=0}(coordError + IOUError + classError)
+$$
+同时，对以上公式进行如下修正：
+
+ + 位置相关误差（coordError和IOUError）与分类误差（calssError）对网络loss的贡献值是不同的，使用$\lambda_{coord}=5$修正coordError。
+ + 在计算IOU误差时，包含物体的cell和不包含物体的cell，两者的IOUError对loss的贡献值是不同的，若采用相同的权值，那么不包含物体的格子的confidence值近似为0，变相放大了包含物体的格子的confidence误差在计算网络参数梯度时的影响。YOLO使用$\lambda_{noobj} = 0.5$修正IOUError。（包含指的是**物体grounth truth box的中心坐标落到格子内**）。
+ + 对于相等的误差值，大物体误差对检测的影响应小于小物体误差对检测的影响。这是因为，**相同的位置偏差占大物体的比例远小于同等偏差占小物体的比例**。YOLO将物体大小的信息项（w和h）进行求**平方根**来改进这个问题。
+
+修正后的loss function如下：
+
+![loss function](https://pic2.zhimg.com/v2-c629e12fb112f0e3c36b0e5dca60103a_r.jpg)
+
+其中, x, y, w, C, p为label值，x, y, w, C, p hat为预测值。$\Pi ^{obj}_i$表示**物体落入格子i**中，$\Pi ^{obj}_{ij}$表示物体**落入格子i的第j个bounding box**, $\Pi ^{noobj}_{ij}$表示物体**没有落入格子i的第j个bounding box**。
+
+### Inference
+
+对图像中的7 * 7 * 2个bounding box进行前向，计算confidence。设置阈值过滤掉得分低的boxes。然后对保留的boxes进行NMS处理，得到最终的检测结果。
+
+### 缺陷
+
++ YOLO对相互靠近的物体、很小的群体检测效果不好。
++ 当同一类物体出现不常见的长宽比时，泛化能力较弱。
++ Loss Function中对不同大小相同误差值的物体处理不能完全解决问题（只是一个trick），影响定位检测效果。
