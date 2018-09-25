@@ -43,6 +43,8 @@
    + 输入为深度网络pool5层的4096维特征，输出为xy方向的**缩放**和**平移**。 
    + 训练样本：**判定为本类的候选框中**和ground truth重叠面积**大于0.6**的候选框。
 
+---
+
 ## SPP-Net
 
 出自论文《Spatial Pyramid Pooling in Deep ConvolutionalNetworks for Visual Recognition 》。
@@ -107,3 +109,30 @@ stride = [10 / 3]向下取整 = 3
 ### 存在的不足
 
 和RCNN一样，SPP也需要训练CNN提取特征，然后训练SVM分类这些特征。需要巨大的存储空间，并且分开训练也很复杂。而且selective search的方法提取特征是在CPU上进行的，相对于GPU来说还是比较慢的。
+
+---
+
+## FAST R-CNN
+
++ 主要对R-CNN中使用大量重叠的region proposal进行卷积造成的**提取特征操作冗余**进行了改进
++ 同时把类别判断和位置精调**统一用深度网络实现**，不再需要额外存储
+
+### 流程图
+
+![FAST R-CNN流程图](https://pic2.zhimg.com/v2-9f58e8489c22b7a5809feac4f743491f_r.jpg)
+
+### ROI Pooling
+
+与SPP的目的相同，将不同尺寸的ROI映射为固定大小的特征，不同的是ROI Pooling没有考虑多个空间尺度，只使用单个尺度。
+
+ROI pool层将每个region proposal均匀分为M * N块，对每一块进行max pooling，从而将feature map上大小不一的region proposal转变为大小统一的数据，送入下一层。对每一个region proposal的pooling网格大小都要单独计算。（参考[FAST R-CNN](https://zhuanlan.zhihu.com/p/24780395)）。
+
+![ROI Pooling](http://pb2ofoe75.bkt.clouddn.com/ROIPooling.jpg)
+
+### Bounding-box Regression
+
+FAST R-CNN去掉了SVM分类层与线性回归精修候选框层，将最后一层的**softmax层换成两个**，一个是对region的分类（包括背景），另一个是对bounding box进行微调。
+
+论文在SVM和Softmax的对比实验中说明，SVM的优势并不明显，故直接用Softmax将整个网络整合训练更好。对于联合训练，同时利用了**分类的监督信息和回归的监督信息**，使得网络训练的更加鲁棒，效果更好。这两种信息是可以有效联合的。
+
+详细的regression过程参考[FAST R-CNN](https://zhuanlan.zhihu.com/p/24780395)。
