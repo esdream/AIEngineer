@@ -18,6 +18,20 @@
    + 从**最大概率**的矩形框开始，分别判断n - 1个框与最大概率框的**重叠度IOU**是否**大于某个设定的阈值**。超过阈值的框除去，保留最大阈值的框并标记。
    + 从剩下的框中再选取概率最大的框，然后重复第二步。一直到找到所有被保留下来的矩形框。
 
+3. mAP：mean average precision（均值平均精度）。在目标检测中衡量识别精度。多个类别物体检测中，每一个类别都可以根据recall和precision绘制一条曲线。AP（average precision）就是该曲线下的面积，mAP是多个类别AP的平均值。
+   $$
+   MeanAveragePrecision = \frac {\Sigma AveragePrecision_C} {N(Classes)}
+   $$
+   其中
+   $$
+   AveragePrecision_C = \frac {\Sigma Precision_C} {N(TotalImages)_C}
+   $$
+
+   $$
+   Precision_C = \frac {N(TruePostivies)_C} {N(TotalObjects)_C}
+   $$
+
+
 ### 步骤
 
 1. 候选区域生成：一张图像生成1K-2K个候选区域（使用Select Search方法）
@@ -200,7 +214,7 @@ YOLO（You Only Look Once）将物体检测作为**回归问题**求解，基于
 
 1. 将图像resize成448 * 448，图像分割为7 * 7网格（cell），这里分割的数量可以任意，后面计算时按照分割的size计算。
 2. CNN提取特征和预测：
-   + 7 * 7 * 2bounding box（bbox）的坐标$(x_{center}, y_{center}, w, h)$，和7 * 7个是否有物体的confidence。
+   + 7 * 7 * 2bounding box（bbox）的坐标$(x_{center}, y_{center}, w, h)$，和7 * 7 * 2个是否有物体的confidence。
    + 7 * 7个cell分别属于哪一个物体的概率（paper中为20种物体）。
 3. 通过NMS过滤bbox。
 
@@ -226,13 +240,13 @@ YOLO包含了24个卷积层和2个全连接层，其借鉴了GoogleNet的结构�
 
 + 每个格子输出B个bounding box，Paper中**B = 2**，如下图中的黄色框。这里的bounding box是**人为选定的2个不同长宽比的box**。也就是说每个cell要预测两个bounding box（四个坐标信息$(x_{center}, y_{center}, w, h)$和一个confidence值）。其中：
 
-  + 中心坐标$x_center, y_center$相对于对应的网格归一化到0 - 1之间，w, h用图像的width和height归一化到0-1之间。
+  + 中心坐标$x_{center}, y_{center}$相对于对应的网格归一化到0 - 1之间，w, h用图像的width和height归一化到0-1之间。
 
   + confidence代表了所预测的bbox中含有object的置信度和这个bbox预测的有多准的两重信息：
     $$
     confidence = Pr(Object) * IOU^{truth}_{pred}
     $$
-    如果有ground truth box第一个grid cell里，第一项取1，否则取0。第二项是预测bounding box和实际的ground truth之间的IOC值。
+    如果有ground truth box落在grid cell里（不一定是bbox的中心，只要是box和grid cell有交集就算），第一项取1，否则取0。第二项是预测bounding box和实际的ground truth之间的IOC值。
 
 ![bounding box](https://pic2.zhimg.com/v2-1ad557fda288473b0335fe64e03bc049_r.jpg)
 
@@ -267,3 +281,63 @@ $$
 + YOLO对相互靠近的物体、很小的群体检测效果不好。
 + 当同一类物体出现不常见的长宽比时，泛化能力较弱。
 + Loss Function中对不同大小相同误差值的物体处理不能完全解决问题（只是一个trick），影响定位检测效果。
+
+---
+
+## SSD
+
+### 网络结构
+
+SSD（Single Shot MultiBox Detector）采用了VGG16的基础网络结构，使用前面的5层，然后利用atrous算法将fc6和fc7层转化成两个卷积层，再额外增加3个卷积层和1个average pool层。不同层次的feature map分别用于default box的偏移以及不同类别得分的预测，最后通过NMS得到最终结果。
+
+![SSD网络结构和与YOLO的比较](https://pic4.zhimg.com/80/v2-5d36659e8be837ad165b0c10210b95af_hd.jpg)
+
+增加的卷积层的feature map大小变化较大，允许能够检测出不同尺度下的物体。SSD中每一层的输出只会感受到目标周围的信息，使用不同的feature map和不同的default box预测不同宽高比的图像，比YOLO增加了预测更多比例的box。
+
+![SSD预测bbox示例](https://pic3.zhimg.com/v2-5964f6dff6dbbd435336cde9e5dfc988_r.jpg)
+
+#### Atrous卷积
+
+Atrous卷积就是带洞卷积，卷积核是稀疏的。例如下图中的第三个示例（c），就是带洞卷积。带洞卷积的有效性基于一个假设：**紧密相邻的像素几乎相同，全部纳入属于冗余，不如跳H个(H为hole size)取1个**。
+
+![Atrous卷积](https://pic1.zhimg.com/80/v2-0d79b7626e95e1abad89d7f3d1707088_hd.jpg)
+
+### 先验框
+
+SSD借鉴了Faster R-CNN中anchor的理念，每个单元设置尺度或者长宽比不同的先验框。原文中的图如下。图中框出的是每一个点有4个先验框（原文中并没有给出具体的先验框个数，而是给了一个变量k个，有的博客上说是k = 6）。
+
+![SSD的先验框](https://pic1.zhimg.com/80/v2-f6563d6d5a6cf6caf037e6d5c60b7910_hd.jpg)
+
+综上所述，对一个大小为 m * n的特征图，每一个单元设置先验框数目为k，分类的数量为c（包括1个背景类），default box偏移量为4（即$x, y, w, h$），**所有单元共需要$(c+4) * k * m * n$个预测值**。
+
+### 训练策略
+
+#### 正负样本
+
+找到每个物体ground true box对应的default box中**IOU最大**的作为正样本，再在剩下的default box中找到那些与任意一个ground truth box的IOU大于0.5的default box作为正样本。即**一个ground truth可能对应多个正样本default box**。其他的作为负样本。
+
+尽管一个ground truth可以与多个先验框匹配，但是ground truth相对先验框还是太少了，所以负样本相对正样本会很多。为了保证正负样本尽量平衡，SSD采用了**hard negative mining**，就是对负样本进行抽样，抽样时按照**置信度误差（预测背景的置信度越小，误差越大）进行降序排列**，选取误差的较大的top-k作为训练的负样本，以保证正负样本比例接近**1:3**。
+
+#### 损失函数
+
+损失函数定义为位置误差（loc）与置信度误差（conf）的加权和：
+$$
+L(x, c, l, g) = \frac {1} {N} (L_{conf}(x, c) + \alpha L_{loc}(x, l, g))
+$$
+其中N是先验框的正样本数量，这里$x^p_{ij} \in \{1, 0\}$是一个指示参数，当$x^p_{ij} = 1$时表示第i个先验框与第j个ground truth匹配，并且ground truth类别为p。c为类别置信度预测值。l为先验框的对应边界框的位置预测值。g是ground truth的位置参数。
+
+对于位置误差，采用Smooth L1 loss，定义如下：
+
+![smooth L1 loss](https://pic1.zhimg.com/80/v2-a56019049a04217560ac498b626ad916_hd.jpg)
+
+![smooth](https://pic4.zhimg.com/80/v2-5853bed6e8796de582647f1e557b623b_hd.jpg)
+
+对于置信度误差，采用softmax loss：
+
+![置信度误差](https://pic2.zhimg.com/80/v2-d28ded21949483b0fbb64b3612b0d543_hd.jpg)
+
+权重系数$\alpha$通过交叉验证设置为1。
+
+### 预测过程
+
+对于每个预测框，首先根据类别置信度确定其类别（置信度最大者）与置信度值，并过滤掉属于背景的预测框。然后根据置信度阈值（如0.5）过滤掉阈值较低的预测框。对于留下的预测框进行解码，根据先验框得到其真实的位置参数（解码后一般还需要做clip，防止预测框位置超出图片）。解码之后，一般需要根据置信度进行降序排列，然后仅保留top-k（如400）个预测框。最后就是进行NMS算法，过滤掉那些重叠度较大的预测框。最后剩余的预测框就是检测结果了。
