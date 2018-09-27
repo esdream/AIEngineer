@@ -32,6 +32,8 @@
    $$
 
 
+
+
 ### 步骤
 
 1. 候选区域生成：一张图像生成1K-2K个候选区域（使用Select Search方法）
@@ -341,3 +343,62 @@ $$
 ### 预测过程
 
 对于每个预测框，首先根据类别置信度确定其类别（置信度最大者）与置信度值，并过滤掉属于背景的预测框。然后根据置信度阈值（如0.5）过滤掉阈值较低的预测框。对于留下的预测框进行解码，根据先验框得到其真实的位置参数（解码后一般还需要做clip，防止预测框位置超出图片）。解码之后，一般需要根据置信度进行降序排列，然后仅保留top-k（如400）个预测框。最后就是进行NMS算法，过滤掉那些重叠度较大的预测框。最后剩余的预测框就是检测结果了。
+
+---
+
+## YOLOv2
+
+YOLOv2在原论文中称为YOLO9000，同时在COCO和ImageNet数据集中进行训练，训练后模型可以实现多达9000种物体的实时检测，VOC 2007数据集测试，67FPS下mAP达到76.8%，40FPS下mAP达到78.6%。原文标题种提到了YOLOv2相比于v1，Better，Faster and Stronger。
+
+### Better
+
+#### Batch Normalization
+
+YOLOv2在每一个卷积层后添加BN层，极大改善了收敛速度同时减少了对其他regularization方法的依赖，使mAP获得了2%的提升。
+
+#### High Resolution Classifier
+
+YOLOv2预训练分类网络的分辨率为448 * 448，在ImageNet数据集上训练10个epochs。再fine tune训练整个网络，mAP提升了4%。
+
+#### Convolutional With Anchor Boxes
+
+YOLOv2借鉴了Faster R-CNN中的anchor思想，为卷积特征图进行滑窗采样，每个中心预测9种不同大小和比例的proposal box。使用预测offset取代直接预测坐标简化了问题，方便网络学习。
+
+具体所有的fine tune过程详见[YOLO2](https://zhuanlan.zhihu.com/p/25167153)。
+
+#### Dimension Clusters（维度聚类）
+
+使用anchor时，作者发现Faster-RCNN中anchor boxes的个数和宽高维度往往是手动精选的先验框（hand-picked priors)，设想能否一开始就选择了更好的、更有代表性的先验boxes维度，那么网络就应该更容易学到准确的预测位置。解决办法就是统计学习中的**K-means聚类方法**，通过对数据集中的**ground true box做聚类**，找到ground true box的统计规律。以**聚类个数k为anchor boxs个数**，以**k个聚类中心box的宽高维度为anchor box的维度**。
+
+如果按照k-means使用欧式距离函数，大boxes比小boxes产生更多error。但是，我们真正想要的是产生好的IOU得分的boxes（与box的大小无关）。因此采用了如下距离度量：
+$$
+d(box, centroid) = 1 - IOU(box, centroid)
+$$
+聚类结果如图：
+
+![维度聚类结果](https://pic1.zhimg.com/80/v2-e2fd3e6743a9598367093fa2836f0db8_hd.jpg)
+
+上面左图： 随着k的增大，IOU也在增大（高召回率），但是复杂度也在增加。所以平衡复杂度和IOU之后，最终得到**k值为5**。
+
+上面右图：5聚类的中心与手动精选的boxes是完全不同的，扁长的框较少瘦高的框较多。
+
+作者做了对比实验，5种boxes的Avg IOU(61.0)就和Faster R-CNN的9种Avg IOU(60.9)相当。 说明K-means方法的生成的boxes更具有代表性，使得检测任务更好学习。
+
+#### Direct location prediction
+
+Paper中不再预测anchor box的中心点与高宽，而是预测**相对于grid cell的坐标位置**，同时把ground truth限制在0-1之间（使用logistic激活函数约束网络的预测值（其实是sigmoid？））。在RPN中，预测(x, y)以及$t_x, t_y$使用的是如下公式：
+$$
+x = (t_x * w_a) - x_a \\
+y = (t_y * h_a) - y_a
+$$
+最终，网络在feature map(13 * 13)的每个cell上预测5个bounding boxes，每一个bounding box预测5个坐标值：$t_x, t_y, t_w, t_h, t_o$。如果这个cell距离图像左上角的边距为$(c_x, c_y)$以及该cell对应box的长和宽分别为$(p_w, p_h)$，那么预测值可以表示为：
+$$
+b_x = \sigma(t_x) + c_x \\
+b_y = \sigma(t_y) + c_y \\
+b_w = p_we^{t_w} \\
+b_h = p_he^{t_h} \\
+Pr(object) * IOU(b, object) = \sigma(t_o)
+$$
+$\sigma$函数是把归一化值转化为图中真实值，使用e的幂函数是因为前面做了ln计算。详见[YOLOv2论文笔记](https://blog.csdn.net/jesse_mx/article/details/53925356)。
+
+![直接位置预测](https://pic3.zhimg.com/80/v2-dafc6f95636611bfcda7244738418e32_hd.jpg)
