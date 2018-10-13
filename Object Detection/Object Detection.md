@@ -35,6 +35,7 @@
 
 
 
+
 ### 步骤
 
 1. 候选区域生成：一张图像生成1K-2K个候选区域（使用Select Search方法）
@@ -154,7 +155,7 @@ FAST R-CNN去掉了SVM分类层与线性回归精修候选框层，将最后一�
 
 在位置精修中，使用的是**smooth损失函数**。假设对于类别$k^*$，在图像中标注了一个ground truth坐标$t^* = (t^*_x, t^*_y, t^*_w, t^*_h)$，即锚点坐标、宽、高。预测值为$t = (t_x, t_y, t_w, t_h)$。定义损失函数
 $$
-L_loc(t, t^*) = \Sigma_{i \in \{x, y, w, h\}}smooth_{L1}(t_i, t^*_i)
+L_{loc}(t, t^*) = \Sigma_{i \in \{x, y, w, h\}}smooth_{L1}(t_i, t^*_i)
 $$
 其中
 $$
@@ -249,7 +250,7 @@ YOLO包含了24个卷积层和2个全连接层，其借鉴了GoogleNet的结构�
     $$
     confidence = Pr(Object) * IOU^{truth}_{pred}
     $$
-    如果有ground truth box落在grid cell里（不一定是bbox的中心，只要是box和grid cell有交集就算），第一项取1，否则取0。第二项是预测bounding box和实际的ground truth之间的IOC值。
+    如果有ground truth box落在grid cell里（不一定是bbox的中心，只要是box和grid cell有交集就算），第一项取1，否则取0。第二项是预测bounding box和实际的ground truth之间的IOU值。
 
 ![bounding box](https://pic2.zhimg.com/v2-1ad557fda288473b0335fe64e03bc049_r.jpg)
 
