@@ -38,6 +38,7 @@
 
 
 
+
 ### 步骤
 
 1. 候选区域生成：一张图像生成1K-2K个候选区域（使用Select Search方法）
@@ -453,4 +454,56 @@ ROI Align能使Mask精度提升10% - 50%。如果含有较多的小目标检测�
 $$
 L = L_{classification} + L_{bbox} + L_{mask}
 $$
-其中$L_{classification}$和$L_{bbox}$与Faster R-CNN一样。mask分支每一个ROI有$k * m^2$维的输出。表示分辨率为 m * m的k个二值mask。其中k是类别数，每一类一个。对每一个像素实行一个sigmoid。定义$L_{mask}$是平均二值cross-entropy loss。对于一个ROI的ground truth是第k类。L_mask只定义在第k个mask上。（其他mask输出对于损失函数没有贡献）
+其中$L_{classification}$和$L_{bbox}$与Faster R-CNN一样。mask分支每一个ROI有$k * m * m$维的输出。表示分辨率为 m * m的k个二值mask。其中k是**类别数**，每一类一个。对每一个像素实行一个sigmoid。定义$L_{mask}$是**平均二值cross-entropy loss**。对于一个ROI的ground truth是第k类。$L_{mask}$只定义在第k个mask上。（其他mask输出对于损失函数没有贡献）
+
+#### Mask Representation
+
+Mask覆盖输入目标的空间位置，所以不能像类标和bbox一样通过全连接层坍塌到很短的向量。提取空间结构很自然的想到利用卷积的**pixel to pixel**对应的特性。这就是分割mask的分支使用FCN的原因。
+
+### 网络结构
+
+将整个网络分成两部分。
+
++ 卷积主干结构用来提取整幅图像的特征。
++ 双支路结构用来对ROI进行bbox识别和mask预测。
+
+![使用 ResNet 与 FPN 的结构](https://pic1.zhimg.com/v2-ff86a479c47c89cf651044366308b086_r.jpg)
+
+![Mask R-CNN详细结构](https://pic2.zhimg.com/80/v2-ac4aee6efb660621d5e5aab3416f750d_hd.jpg)
+
+### 实现细节
+
+#### Training
+
+1. 和Faster R-CNN一样，IOU超过0.5的ROI被视为正例，否则视为反例。
+2. Mask Loss只在正例上定义，mask target时ROI和GT mask的交集。
+3. 图像被resize到短边800。每个mini-batch 2幅图像，每幅图像采样N个ROI，正负样本比例1:3。N是64对于Resnet主干，512对于FPN主干。
+
+### Inference
+
+1. 先在proposals上进行box识别，然后进行非最大值抑制。mask预测在得分最高的100个box上进行。mask分支对每个ROI预测K个mask，但是只取第k个，k是classification分支输出结果。
+2. m * m的mask resize到ROI的大小，然后以阈值0.5二值化。
+
+---
+
+## Feature Pyramid Networks（FPN）
+
+原来多数的object detection算法都是只采用**顶层特征**做预测，但我们知道**低层的特征语义信息比较少，但是目标位置准确；高层的特征语义信息比较丰富，但是目标位置比较粗略**。另外虽然也有些算法采用多尺度特征融合的方式，但是一般是采用融合后的特征做预测，而本文不一样的地方在于**预测是在不同特征层**独立进行的。 
+
+下图展示了4种**利用特征**的方式：
+
+![特征利用方式](http://pb2ofoe75.bkt.clouddn.com/feature.jpg)
+
+(a) 图像金字塔。即将图像做成不同的scale，然后不同scale的图像生成对应的不同scale的特征。这种方法的缺点在于增加了时间成本。有些算法会在测试时候采用图像金字塔。 
+
+(b) 单一特征图。SPP net，Fast RCNN，Faster RCNN是采用这种方式，即仅采用网络最后一层的特征。 
+
+(c) 多尺度特征融合。像SSD（Single Shot Detector）采用这种多尺度特征融合的方式，没有上采样过程，即从网络不同层抽取不同尺度的特征做预测，这种方式不会增加额外的计算量。
+
+(d) 特征金字塔网络。顶层特征通过上采样和低层特征做融合。每一层都是独立预测。本文采用的就是这种方式。
+
+### 实现细节
+
+作者的算法大致结构如下图：一个**自底向上**的线路，一个**自顶向下**的线路，**横向连接（lateral connection）**。图中放大的区域就是横向连接，这里1 * 1的卷积核的主要作用是减少卷积核的个数，也就是减少了feature map的个数，并不改变feature map的尺寸大小。
+
+![横向连接](https://pic3.zhimg.com/80/v2-dacf2d16e42d6bb90596f947ec0044f9_hd.jpg)
