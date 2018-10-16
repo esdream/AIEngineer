@@ -36,6 +36,8 @@
 
 
 
+
+
 ### 步骤
 
 1. 候选区域生成：一张图像生成1K-2K个候选区域（使用Select Search方法）
@@ -404,3 +406,51 @@ $$
 $\sigma$函数是把归一化值转化为图中真实值，使用e的幂函数是因为前面做了ln计算。详见[YOLOv2论文笔记](https://blog.csdn.net/jesse_mx/article/details/53925356)。
 
 ![直接位置预测](https://pic3.zhimg.com/80/v2-dafc6f95636611bfcda7244738418e32_hd.jpg)
+
+---
+
+## Mask R-CNN
+
+### 总体框架
+
+![Mask R-CNN框架](http://pb2ofoe75.bkt.clouddn.com/Mask_R_CNN.jpg)
+
+上图是Mask R-CNN的框架。其中黑色部分是原来的Faster R-CNN，红色部分为作者在Mask R-CNN中做的改进。主要为以下两点：
+
++ 将ROI Pooling层替换成了**ROI Align**。
++ 添加与ROI Align并列的**FCN（Fully Convolutional Network）层**，也就是分割mask的分支。通过应用到每一个ROI上的一个小FCN，以pix2pix的方式预测分割mask。
+
+### Mask R-CNN中对Faster R-CNN的改进
+
+#### ROI Align
+
+之所以提出ROI Align，是因为之前的ROI Pooling操作会让实例分割的结果会有较大的重叠，而ROI Align很好地解决了ROI Pooling操作中两次量化造成的**miss-alignment**问题。
+
+由于 Fast R-CNN 、Faster R-CNN 的候选框位置是通过 regression 方式得到，值大部分是**浮点数**，而要执行完成 RoIPooling 有需要的得到**固定尺寸的特征映射**。因此 RoIPooling 存在两次量化的过程：
+
++ 将候选框边界量化为整数点坐标值。
++ 将量化后的边界区域平均分割成 k x k 个单元(bin),对每一个单元的边界进行量化（如下图）。
+
+![ROI Pooling过程](https://pic4.zhimg.com/v2-e55e66c9c21136efa62beacfcb02f9ef_b.gif)
+
+这样经过两次量化之后，得到的候选框和最初的regression得到的位置就出现了一定偏差，即miss-alingment。这对分类没有影响，但对于预测mask有很大影响。因此，为了解决该问题，作者提出了ROI Align。
+
+ROI Align通过取消量化操作，使用**双线性内插值（bilinar interpolation）**方法获得坐标为浮点数的像素点上的数值。将整个特征聚集的过程转化为一个连续的操作。操作流程如下（具体案例见[Mask R-CNN阅读记录](https://zhuanlan.zhihu.com/p/44741620)）：
+
++ 遍历每一个候选区域，保持浮点数边界不做量化。
+
++ 将候选区域分成 k×k 个区域，每个边界的单元不做量化。
+
++ 在每个计算单元中固定四个坐标位置，使用双线性内插的方法计算四个位置的值，然后进行最大池化操作。
+
+  ![ROI Align](https://pic1.zhimg.com/80/v2-21ee0cf08bed9dfdca6651799e48c36e_hd.jpg)
+
+ROI Align能使Mask精度提升10% - 50%。如果含有较多的小目标检测，使用ROI Align能获得更好的精度。
+
+#### Loss function
+
+多任务Loss function对于每一个ROI，有
+$$
+L = L_{classification} + L_{bbox} + L_{mask}
+$$
+其中$L_{classification}$和$L_{bbox}$与Faster R-CNN一样。mask分支每一个ROI有$k * m^2$维的输出。表示分辨率为 m * m的k个二值mask。其中k是类别数，每一类一个。对每一个像素实行一个sigmoid。定义$L_{mask}$是平均二值cross-entropy loss。对于一个ROI的ground truth是第k类。L_mask只定义在第k个mask上。（其他mask输出对于损失函数没有贡献）
